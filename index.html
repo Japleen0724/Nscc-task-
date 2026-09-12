@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR-Based Geo-Tagged Attendance Management System</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="nav-container">
+      <a href="#" class="logo-group" onclick="switchTab('attendee'); return false;">
+        <span style="font-size: 1.5rem;">📍</span>
+        <span>GeoAttend</span>
+        <span class="logo-badge">Golang + Geofencing</span>
+      </a>
+
+      <div class="nav-user">
+        <div id="user-status"></div>
+        <button id="auth-btn" class="btn btn-primary btn-sm">Sign In</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <div class="tabs-bar">
+    <div class="tabs-container">
+      <button class="tab-btn active" data-tab="attendee" onclick="switchTab('attendee')">
+        📱 Attendee Check-In
+      </button>
+      <button class="tab-btn" data-tab="organizer" onclick="switchTab('organizer')">
+        📊 Organizer Dashboard
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Content Views -->
+  <main>
+
+    <!-- 1. Attendee Portal View -->
+    <section id="view-attendee" class="section-view active">
+      <div class="checkin-container">
+        <div style="text-align: center; margin-bottom: 1.5rem;">
+          <h2 style="font-size: 1.5rem; color: var(--dark);">Event Check-In Portal</h2>
+          <p style="font-size: 0.9rem; color: var(--gray-500);">Verify your physical presence and mark your attendance</p>
+        </div>
+
+        <!-- Step 1: Event QR Code -->
+        <div class="step-box">
+          <div class="step-header">
+            <span class="step-num">1</span>
+            <span>Scan or Enter Event QR Code</span>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--gray-500); margin-bottom: 0.75rem;">
+            Type the QR code string shown on the organizer's screen or badge (e.g. <code>EVENT-TECHCONF2026</code>, <code>EVENT-GOMEETUP26</code>)
+          </p>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" id="attendee-qr-input" placeholder="e.g. EVENT-TECHCONF2026" style="flex: 1; font-family: monospace;">
+            <button class="btn btn-secondary" id="btn-lookup-event">Verify QR</button>
+          </div>
+          <div id="event-verified-info" style="margin-top: 0.75rem; display: none;"></div>
+        </div>
+
+        <!-- Step 2: Attendee Details -->
+        <div class="step-box">
+          <div class="step-header">
+            <span class="step-num">2</span>
+            <span>Your Information</span>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="attendee-name">Full Name or Student/Employee ID</label>
+            <input type="text" id="attendee-name" placeholder="e.g. Jordan Hayes">
+          </div>
+        </div>
+
+        <!-- Step 3: Location Access -->
+        <div class="step-box">
+          <div class="step-header">
+            <span class="step-num">3</span>
+            <span>Browser Geolocation Access</span>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--gray-500); margin-bottom: 0.75rem;">
+            Attendance requires verifying you are within the designated event perimeter.
+          </p>
+          <button class="btn btn-primary" id="btn-get-location" style="width: 100%;">
+            📍 Acquire Browser GPS Location
+          </button>
+          <div class="geo-status-box" id="geo-status-box" style="margin-top: 0.75rem;">
+            <div id="geo-status">Status: Location not yet acquired</div>
+          </div>
+          <div id="geo-details" style="display: none;"></div>
+          <div id="distance-preview-banner" class="result-banner"></div>
+        </div>
+
+        <!-- Submit Button -->
+        <button class="btn btn-success" id="btn-submit-attendance" style="width: 100%; padding: 0.9rem; font-size: 1.05rem;">
+          ✅ Submit Geo-Tagged Attendance
+        </button>
+
+        <!-- Final Result Feedback Banner -->
+        <div id="checkin-result-banner" class="result-banner"></div>
+      </div>
+    </section>
+
+    <!-- 2. Organizer Dashboard View -->
+    <section id="view-organizer" class="section-view">
+      <div class="controls-row">
+        <div>
+          <h1 style="font-size: 1.6rem; font-weight: 800; color: var(--dark);">Organizer Management Center</h1>
+          <p style="font-size: 0.9rem; color: var(--gray-500);">Live attendance monitoring, event creation, and geofence configuration</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="polling-badge" id="polling-toggle" onclick="togglePolling()">
+            <span class="pulse-dot"></span> Live Polling ON (5s)
+          </div>
+          <button class="btn btn-primary" onclick="openModal('create-event-modal')">+ Create New Event</button>
+        </div>
+      </div>
+
+      <!-- KPI Stats Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-title">Active Events</span>
+          <span class="kpi-value" id="stat-total-events">0</span>
+        </div>
+        <div class="kpi-card kpi-success">
+          <span class="kpi-title">Total Check-Ins Verified</span>
+          <span class="kpi-value" id="stat-total-attendees" style="color: var(--success);">0</span>
+        </div>
+        <div class="kpi-card kpi-purple">
+          <span class="kpi-title">Security Geofence</span>
+          <span class="kpi-value" style="font-size: 1.5rem; font-weight: 700; color: var(--secondary);">Strict Haversine</span>
+        </div>
+      </div>
+
+      <!-- Events List -->
+      <h3 style="margin-bottom: 0.75rem; color: var(--gray-700);">My Events & QR Codes</h3>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Event</th>
+              <th>Location & Radius</th>
+              <th>Attendance</th>
+              <th>QR Code</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="organizer-events-table">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Live Recent Check-ins Monitor -->
+      <div class="controls-row" style="margin-top: 2.5rem; margin-bottom: 0.75rem;">
+        <div>
+          <h3 style="color: var(--gray-700);">Real-Time Check-In Stream</h3>
+          <p style="font-size: 0.85rem; color: var(--gray-500);">Auto-updates every 5 seconds via background polling</p>
+        </div>
+      </div>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Attendee Name</th>
+              <th>Event</th>
+              <th>Coordinates</th>
+              <th>Distance from Center</th>
+              <th>Timestamp</th>
+            </tr>
+          </thead>
+          <tbody id="recent-checkins-table">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Create Event Modal -->
+  <div class="modal-backdrop" id="create-event-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 1.15rem; color: var(--dark);">Create New Event</h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('create-event-modal')">✕</button>
+      </div>
+      <form id="create-event-form">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="new-event-name">Event Name</label>
+            <input type="text" id="new-event-name" required placeholder="e.g. AI & Cloud Expo 2026">
+          </div>
+          <div class="form-group">
+            <label for="new-event-desc">Description</label>
+            <textarea id="new-event-desc" rows="2" placeholder="Main auditorium, Session Hall A"></textarea>
+          </div>
+
+          <div style="background: var(--gray-100); padding: 0.85rem; border-radius: 8px; margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span style="font-size: 0.85rem; font-weight: 700; color: var(--gray-700);">Event Coordinates</span>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-detect-event-location">
+                📍 Detect My Current GPS
+              </button>
+            </div>
+            <div style="display: flex; gap: 0.75rem;">
+              <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                <label for="new-event-lat" style="font-size: 0.8rem;">Latitude</label>
+                <input type="number" step="any" id="new-event-lat" required placeholder="37.7749">
+              </div>
+              <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                <label for="new-event-lng" style="font-size: 0.8rem;">Longitude</label>
+                <input type="number" step="any" id="new-event-lng" required placeholder="-122.4194">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="new-event-radius">Allowed Attendance Radius (Meters)</label>
+            <input type="number" id="new-event-radius" required value="100" min="10" max="5000">
+            <small style="color: var(--gray-500); font-size: 0.75rem;">Attendees must be within this distance to successfully check in.</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('create-event-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Generate Event & QR</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Event QR Code Modal -->
+  <div class="modal-backdrop" id="event-qr-modal">
+    <div class="modal-box" style="text-align: center;">
+      <div class="modal-header">
+        <h3 style="font-size: 1.15rem; color: var(--dark);" id="event-qr-title">Event QR Code</h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('event-qr-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: var(--gray-500); margin-bottom: 1rem;">Display this QR code for attendees to scan and check in</p>
+        <div style="background: white; padding: 1rem; display: inline-block; border-radius: 8px; border: 1px solid var(--gray-300);">
+          <img id="event-qr-image" src="" alt="Event QR Code" style="width: 220px; height: 220px; display: block;">
+        </div>
+        <p style="margin-top: 1rem; font-size: 1rem; font-family: monospace; font-weight: 700;" id="event-qr-code-text"></p>
+      </div>
+      <div class="modal-footer" style="justify-content: center;">
+        <button class="btn btn-primary" id="event-qr-download">💾 Download QR PNG</button>
+        <button class="btn btn-secondary" onclick="closeModal('event-qr-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Event Attendance List Modal -->
+  <div class="modal-backdrop" id="event-attendees-modal">
+    <div class="modal-box" style="max-width: 650px;">
+      <div class="modal-header">
+        <h3 style="font-size: 1.15rem; color: var(--dark);" id="event-attendees-modal-title">Attendees</h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('event-attendees-modal')">✕</button>
+      </div>
+      <div class="modal-body" style="max-height: 400px; overflow-y: auto; padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Attendee</th>
+              <th>Coordinates</th>
+              <th>Distance</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="event-attendees-table">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('event-attendees-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Organizer Auth Modal -->
+  <div class="modal-backdrop" id="auth-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 1.15rem; color: var(--dark);">Organizer Sign In</h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('auth-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Quick Demo Button -->
+        <div style="background: var(--gray-100); padding: 0.75rem; border-radius: 8px; margin-bottom: 1.25rem; text-align: center;">
+          <p style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--gray-500); margin-bottom: 0.5rem;">Quick Demo Sign In</p>
+          <button class="btn btn-primary btn-sm" style="width: 100%;" onclick="quickLogin('organizer@event.com', 'organizer123')">
+            🔑 Sign in as Demo Organizer
+          </button>
+        </div>
+
+        <form id="login-form">
+          <div class="form-group">
+            <label for="login-email">Email Address</label>
+            <input type="email" id="login-email" required placeholder="organizer@event.com">
+          </div>
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" required placeholder="••••••••">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;">Sign In</button>
+        </form>
+
+        <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid var(--gray-100);">
+
+        <details>
+          <summary style="font-size: 0.85rem; color: var(--primary); cursor: pointer; font-weight: 600;">Register new organizer account</summary>
+          <form id="register-form" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label for="reg-name">Full Name</label>
+              <input type="text" id="reg-name" required placeholder="Sarah Chen">
+            </div>
+            <div class="form-group">
+              <label for="reg-email">Email Address</label>
+              <input type="email" id="reg-email" required placeholder="sarah@event.com">
+            </div>
+            <div class="form-group">
+              <label for="reg-password">Password</label>
+              <input type="password" id="reg-password" required minlength="4" placeholder="Minimum 4 characters">
+            </div>
+            <button type="submit" class="btn btn-secondary" style="width: 100%;">Create Organizer Account</button>
+          </form>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/scanner.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
